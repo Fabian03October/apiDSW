@@ -1,0 +1,15 @@
+{
+    "subtema_id": 2,
+    "titulo": "Ejercicio 2: Layout con Flexbox",
+    "pregunta": "Crear una tarjeta de producto simple. Completa el código HTML agregando las clases de Tailwind CSS necesarias en el div marcado con '???' para que el contenido se muestre en una fila con el título y categoría a la izquierda, y el precio a la derecha.",
+    "solucion": "flex justify-between items-center",
+    "dificultad": "FACIL",
+    "metadatos": {
+        "codigo_inicial": "<div class=\"w-72 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden\">\n    <img class=\"w-full h-40 object-cover\" \n         src=\"https://via.placeholder.com/300x200\" \n         alt=\"Imagen de producto\">\n    <div class=\"p-4\">\n        <div class=\"???\"> \n            <div>\n                <h3 class=\"text-lg font-bold text-gray-900\">\n                    Hamburguesa Clásica\n                </h3>\n                <p class=\"text-sm text-gray-500\">\n                    Comida Rápida\n                </p>\n            </div>\n            <div>\n                <span class=\"text-xl font-bold text-green-600\">\n                    $120.00\n                </span>\n            </div>\n        </div>\n    </div>\n</div>",
+        "codigo_solucion": "<div class=\"w-72 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden\">\n    <img class=\"w-full h-40 object-cover\" \n         src=\"https://via.placeholder.com/300x200\" \n         alt=\"Imagen de producto\">\n    <div class=\"p-4\">\n        <div class=\"flex justify-between items-center\">\n            <div>\n                <h3 class=\"text-lg font-bold text-gray-900\">\n                    Hamburguesa Clásica\n                </h3>\n                <p class=\"text-sm text-gray-500\">\n                    Comida Rápida\n                </p>\n            </div>\n            <div>\n                <span class=\"text-xl font-bold text-green-600\">\n                    $120.00\n                </span>\n            </div>\n        </div>\n    </div>\n</div>",
+        "tiempo_estimado": "5 minutos",
+        "puntos": 10,
+        "tipo": "completar_codigo",
+        "tecnologia": "tailwind_css"
+    }
+}
