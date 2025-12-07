@@ -12,7 +12,11 @@ class ContenidoController extends Controller
     {
         return response()->json(Contenido::with('subtema')->get());
     }
-
+    public function porSubtema($id)
+    {
+        $contenidos = Contenido::where('subtema_id', $id)->get();
+        return response()->json($contenidos);
+    }
     public function show(Contenido $contenido): JsonResponse
     {
         return response()->json($contenido->load('subtema'));

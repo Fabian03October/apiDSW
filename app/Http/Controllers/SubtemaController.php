@@ -15,6 +15,12 @@ class SubtemaController extends Controller
         );
     }
 
+     public function porTema($id)
+    {
+        $subtemas = Subtema::where('tema_id', $id)->get();
+        return response()->json($subtemas);
+    }
+
     public function show(Subtema $subtema): JsonResponse
     {
         return response()->json(

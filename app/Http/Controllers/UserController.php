@@ -27,7 +27,7 @@ class UserController extends Controller
             'rol' => 'required|in:estudiante,profesor,admin',
         ]);
 
-        $validated['contrasena_hash'] = bcrypt($validated['contrasena_hash']);
+        //$validated['contrasena_hash'] = bcrypt($validated['contrasena_hash']);
         $user = User::create($validated);
         return response()->json($user, 201);
     }

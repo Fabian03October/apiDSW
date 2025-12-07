@@ -68,4 +68,13 @@ class EjercicioController extends Controller
         $ejercicio->delete();
         return response()->json(null, 204);
     }
+    public function porSubtema($id)
+    {
+        // Ocultamos la 'solucion' real para que el alumno no la vea inspeccionando la red
+        $ejercicios = Ejercicio::where('subtema_id', $id)
+            ->select('id', 'subtema_id', 'titulo', 'pregunta', 'dificultad') 
+            ->get();
+
+        return response()->json($ejercicios);
+    }
 }

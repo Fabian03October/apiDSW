@@ -11,16 +11,28 @@ use App\Http\Controllers\SubtemaController;
 use App\Http\Controllers\TemaController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Http\Request; 
 
 // Rutas de autenticación (públicas)
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
+
+
 
 // Rutas protegidas
 Route::middleware('auth:sanctum')->group(function () {
     // Autenticación
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/me', [AuthController::class, 'me']);
+    Route::get('/materias/{id}/temas', [TemaController::class, 'porMateria']);
+    Route::get('/temas/{id}/subtemas', [SubtemaController::class, 'porTema']);
+    Route::get('/subtemas/{id}/contenidos', [ContenidoController::class, 'porSubtema']);
+    // Rutas para Quizzes y Conjuntos
+    Route::post('/ia/generar-cuestionario', [ConsultaIAController::class, 'generarCuestionario']);
+    Route::post('/ia/responder-cuestionario', [ConsultaIAController::class, 'responderCuestionario']);
+    Route::post('/ia/evaluar-conjunto-ejercicios', [ConsultaIAController::class, 'evaluarConjuntoEjercicios']);
+    Route::get('/subtemas/{id}/ejercicios', [EjercicioController::class, 'porSubtema']);
+    Route::post('/ia/evaluar-lote-ejercicios', [ConsultaIAController::class, 'evaluarConjuntoEjercicios']);
 
     // Rutas de Materias
     Route::apiResource('materias', MateriaController::class);

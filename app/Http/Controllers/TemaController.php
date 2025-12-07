@@ -62,4 +62,10 @@ class TemaController extends Controller
         $tema->delete();
         return response()->json(null, 204);
     }
+
+    public function porMateria($materiaId): JsonResponse
+    {
+        $temas = Tema::with('subtemas')->where('materia_id', $materiaId)->get();
+        return response()->json($temas);
+    }
 }
