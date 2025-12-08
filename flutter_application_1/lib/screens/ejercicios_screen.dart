@@ -59,7 +59,7 @@ class _EjerciciosScreenState extends State<EjerciciosScreen> {
   }
 
   void _mostrarResultadoIA(BuildContext context, Map<String, dynamic> resultado) {
-    bool esCorrecto = (resultado['es_correcto'] == true) || ((resultado['calificacion'] ?? 0) > 60);
+    bool esCorrecto = resultado['es_correcto'] == true || (resultado['calificacion'] ?? 0) > 60;
     String feedback = resultado['retroalimentacion'] ?? resultado['respuesta_ia'] ?? 'Sin comentarios';
 
     showModalBottomSheet(

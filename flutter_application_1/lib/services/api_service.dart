@@ -238,12 +238,13 @@ class ApiService {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token');
 
-      // Esta ruta (/ia/verificar-ejercicio) la definiste en tus rutas anteriormente
+      debugPrint('Enviando a IA: ID=$ejercicioId, Resp=$respuestaUsuario'); // <--- DEBUG 1
+
       final response = await _dio.post(
         '$baseUrl/ia/verificar-ejercicio', 
         data: {
           'ejercicio_id': ejercicioId,
-          'respuesta_usuario': respuestaUsuario,
+          'respuesta_estudiante': respuestaUsuario,
         },
         options: Options(headers: {
           'Authorization': 'Bearer $token',
@@ -251,15 +252,37 @@ class ApiService {
         }),
       );
 
-      // Esperamos que el backend devuelva algo como: 
-      // { "es_correcto": true, "retroalimentacion": "Muy bien explicado..." }
+      debugPrint('Respuesta IA Exitosa: ${response.data}'); // <--- DEBUG 2
       return response.data; 
+
     } catch (e) {
-      debugPrint('Error IA: $e');
-      // Si falla, devolvemos un error genérico para no romper la app
+      debugPrint('🛑 ERROR EN EVALUAR RESPUESTA IA: $e');
+
+      // SI EL SERVIDOR RESPONDIÓ CON ERROR (Ej: 500, 404, 422)
+      if (e is DioException) {
+        if (e.response != null) {
+          debugPrint('Código de estado: ${e.response?.statusCode}');
+          debugPrint('Datos del error: ${e.response?.data}'); // <--- AQUÍ SALDRÁ EL ERROR DE LARAVEL
+          
+          // Intentamos devolver el mensaje real del servidor si existe
+          return {
+            'error': true,
+            'retroalimentacion': 'Error del servidor (${e.response?.statusCode}): ${e.response?.data}'
+          };
+        } else {
+          // Error de conexión (servidor apagado, internet, etc.)
+          debugPrint('Error de conexión: ${e.message}');
+          return {
+            'error': true,
+            'retroalimentacion': 'Error de conexión: Verifique que el servidor corre en 10.0.2.2:8000'
+          };
+        }
+      }
+
+      // Error desconocido
       return {
         'error': true,
-        'retroalimentacion': 'No se pudo conectar con la IA. Intenta más tarde.'
+        'retroalimentacion': 'Error desconocido en la App: $e'
       };
     }
   }
@@ -268,33 +291,35 @@ class ApiService {
   // ---------------------------------------------------------
 
   /// 1. Generar un nuevo Quiz basado en un tema
-  Future<Map<String, dynamic>> generarCuestionario(int temaId, {int cantidad = 5, String dificultad = 'intermedio'}) async {
+  Future<Map<String, dynamic>> generarCuestionario({
+    int? temaId, 
+    int? subtemaId, 
+    int cantidad = 5, 
+    String dificultad = 'intermedio'
+  }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token');
 
+      // Preparamos los datos (enviaremos temaId o subtemaId según corresponda)
+      Map<String, dynamic> data = {
+        'cantidad': cantidad,
+        'dificultad': dificultad,
+      };
+
+      if (subtemaId != null) data['subtema_id'] = subtemaId;
+      if (temaId != null) data['tema_id'] = temaId;
+
       final response = await _dio.post(
         '$baseUrl/ia/generar-cuestionario',
-        data: {
-          'tema_id': temaId,
-          'cantidad': cantidad,
-          'dificultad': dificultad,
-        },
-        options: Options(headers: {
-          'Authorization': 'Bearer $token',
-          'Accept': 'application/json',
-        }),
+        data: data,
+        options: Options(headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'}),
       );
-
-      // Laravel devuelve un Map con 'quiz_id' y 'preguntas'
-      return response.data; 
-
+      
+      return response.data;
     } catch (e) {
-      debugPrint('Error generando cuestionario: $e');
-      if (e is DioException) {
-        debugPrint('Server error: ${e.response?.data}');
-      }
-      throw Exception('Error al generar el cuestionario');
+      debugPrint('Error generando quiz: $e');
+      throw Exception('No se pudo generar el cuestionario');
     }
   }
 

@@ -9,17 +9,19 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use App\Models\Subtema;
 
 class ConsultaIAController extends Controller
 {
     // ==========================================
-    // 1. GENERAR CUESTIONARIO (Quiz de varias preguntas)
+    // 1. GENERAR CUESTIONARIO (Quiz)
     // ==========================================
     public function generarCuestionario(Request $request): JsonResponse
     {
         try {
             $validated = $request->validate([
                 'tema_id' => 'required|integer',
+                'subtema_id' => 'nullable|integer',
                 'cantidad' => 'integer|min:3|max:10|default:5',
                 'dificultad' => 'required|string|in:facil,intermedio,dificil'
             ]);
@@ -63,14 +65,14 @@ class ConsultaIAController extends Controller
     }
 
     // ==========================================
-    // 2. RESPONDER CUESTIONARIO (Calcula Nota + Feedback)
+    // 2. RESPONDER CUESTIONARIO
     // ==========================================
     public function responderCuestionario(Request $request): JsonResponse
     {
         try {
             $validated = $request->validate([
                 'quiz_id' => 'required|integer',
-                'respuestas' => 'required|array', // [{'id': 1, 'seleccion': 'a'}, ...]
+                'respuestas' => 'required|array',
             ]);
 
             $usuario = $request->user();
@@ -86,7 +88,6 @@ class ConsultaIAController extends Controller
             $erroresParaIA = [];
 
             foreach ($preguntasQuiz as $index => $pregunta) {
-                // Buscar respuesta del usuario
                 $respuestaUsuario = null;
                 foreach ($validated['respuestas'] as $res) {
                     $preguntaId = $pregunta['id'] ?? ($index + 1);
@@ -117,18 +118,15 @@ class ConsultaIAController extends Controller
                 ];
             }
 
-            // Calculamos nota (Aseguramos que sea un número, nunca null)
             $calificacion = ($total > 0) ? round(($puntaje / $total) * 100) : 0;
 
-            // Feedback IA solo si hay errores
-            $feedbackGeneral = "¡Excelente trabajo! Has dominado el tema.";
+            $feedbackGeneral = "¡Excelente trabajo!";
             if (count($erroresParaIA) > 0) {
                 $promptFeedback = "Estudiante obtuvo {$calificacion}/100.\nErrores:\n" . json_encode($erroresParaIA) . "\n\nDame feedback constructivo breve sin dar respuestas directas.";
                 $resIA = $this->llamarGemini($promptFeedback);
                 if ($resIA['success']) $feedbackGeneral = $resIA['data'];
             }
 
-            // Guardar intento
             ConsultaIA::create([
                 'usuario_id' => $usuario->id,
                 'pregunta' => "Intento Quiz #{$validated['quiz_id']}",
@@ -139,7 +137,7 @@ class ConsultaIAController extends Controller
             ]);
 
             return response()->json([
-                'calificacion' => (int)$calificacion, // Forzamos entero para Flutter
+                'calificacion' => (int)$calificacion,
                 'puntaje_texto' => "{$puntaje}/{$total}",
                 'retroalimentacion' => $feedbackGeneral,
                 'es_correcto' => ($calificacion >= 60),
@@ -152,19 +150,72 @@ class ConsultaIAController extends Controller
     }
 
     // ==========================================
-    // 3. FUNCIONES AUXILIARES Y CONEXIÓN IA
+    // 3. VERIFICAR UN SOLO EJERCICIO (La función que faltaba)
+    // ==========================================
+    public function verificarEjercicio(Request $request): JsonResponse
+    {
+        try {
+            $validated = $request->validate([
+                'ejercicio_id' => 'required|integer',
+                'respuesta_estudiante' => 'required|string',
+            ]);
+
+            $usuario = $request->user();
+            $ejercicio = Ejercicio::findOrFail($validated['ejercicio_id']);
+
+            // Obtenemos contexto
+            $contexto = $this->obtenerContextoEjercicio($ejercicio);
+
+            // Llamada a la IA (usando la función auxiliar segura)
+            $resultado = $this->verificarRespuestaConGemini(
+                $ejercicio,
+                $validated['respuesta_estudiante'],
+                $contexto
+            );
+
+            // Guardar historial
+            $consulta = ConsultaIA::create([
+                'usuario_id' => $usuario->id,
+                'ejercicio_id' => $ejercicio->id,
+                'pregunta' => $validated['respuesta_estudiante'],
+                'respuesta_ia' => $resultado['evaluacion'],
+                'retroalimentacion' => $resultado['retroalimentacion'],
+                'tipo' => 'respuesta_ejercicio',
+                'es_correcto' => $resultado['es_correcto'],
+            ]);
+
+            return response()->json([
+                'message' => 'Respuesta evaluada',
+                'es_correcto' => $resultado['es_correcto'],
+                'evaluacion' => $resultado['evaluacion'],
+                'retroalimentacion' => $resultado['retroalimentacion'],
+                'consulta' => $consulta,
+                // Agregamos calificacion simulada para evitar crash en Flutter si lo espera
+                'calificacion' => $resultado['es_correcto'] ? 100 : 0 
+            ], 200);
+
+        } catch (\Exception $e) {
+            Log::error('ERROR VERIFICAR EJERCICIO: ' . $e->getMessage());
+            return response()->json(['error' => 'Error interno: ' . $e->getMessage()], 500);
+        }
+    }
+
+    // ==========================================
+    // 4. FUNCIONES AUXILIARES PRIVADAS
     // ==========================================
 
     private function llamarGemini($prompt): array
     {
         $apiKey = env('GEMINI_API_KEY');
-        if (empty($apiKey)) return ['success' => false, 'data' => 'Falta API Key'];
+        if (empty($apiKey)) {
+            Log::error('GEMINI ERROR: Falta API KEY');
+            return ['success' => false, 'data' => 'Error config server'];
+        }
 
-        // Usamos el modelo flash por rapidez
-        $url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent';
+        // Usamos modelo estable 1.5
+        $url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
 
         try {
-            // Http::withoutVerifying() ES VITAL PARA TU ERROR DE CONEXIÓN EN LOCALHOST
             $response = Http::withoutVerifying()
                 ->withHeaders(['Content-Type' => 'application/json'])
                 ->post($url . '?key=' . $apiKey, [
@@ -172,18 +223,20 @@ class ConsultaIAController extends Controller
                 ]);
 
             if ($response->successful()) {
-                $json = $response->json();
-                if (isset($json['candidates'][0]['content']['parts'][0]['text'])) {
-                    return ['success' => true, 'data' => $json['candidates'][0]['content']['parts'][0]['text']];
+                $jsonResponse = $response->json();
+                if (isset($jsonResponse['candidates'][0]['content']['parts'][0]['text'])) {
+                    return ['success' => true, 'data' => $jsonResponse['candidates'][0]['content']['parts'][0]['text']];
+                } else {
+                    return ['success' => false, 'data' => 'IA no respondió texto.'];
                 }
+            } else {
+                Log::error('GEMINI API ERROR: ' . $response->body());
+                return ['success' => false, 'data' => 'Error Google: ' . $response->status()];
             }
-            
-            Log::error('Gemini Error: ' . $response->body());
-            return ['success' => false, 'data' => 'Error IA: ' . $response->status()];
 
         } catch (\Exception $e) {
-            Log::error('Gemini Exception: ' . $e->getMessage());
-            return ['success' => false, 'data' => 'Error conexión: ' . $e->getMessage()];
+            Log::error('GEMINI EXCEPTION: ' . $e->getMessage());
+            return ['success' => false, 'data' => 'Error conexión'];
         }
     }
 
@@ -196,12 +249,85 @@ class ConsultaIAController extends Controller
     private function obtenerContextoTema($temaId) {
         $tema = Tema::with('subtemas.contenidos')->find($temaId);
         if (!$tema) return "Tema general.";
-        
         $ctx = "Tema: {$tema->titulo}. Descripción: {$tema->descripcion}. ";
         foreach($tema->subtemas as $sub) {
             $ctx .= "Subtema: {$sub->titulo}. ";
             foreach($sub->contenidos as $cont) $ctx .= "Info: " . substr($cont->cuerpo, 0, 100) . "... ";
         }
         return $ctx;
+    }
+    /**
+     * Obtener el contexto educativo completo de un Subtema
+     */
+    private function obtenerContextoSubtema($subtemaId)
+    {
+        // 1. Buscamos el subtema cargando también sus contenidos
+        // Asegúrate de que tu modelo Subtema tenga la relación public function contenidos()
+        $subtema = \App\Models\Subtema::with('contenidos')->find($subtemaId);
+
+        // 2. Si no existe, devolvemos un texto genérico para que no falle
+        if (!$subtema) {
+            return "Contexto general del curso.";
+        }
+
+        // 3. Empezamos a construir el texto para la IA
+        $ctx = "Título del Subtema: {$subtema->titulo}.\n";
+        $ctx .= "Descripción: {$subtema->descripcion}.\n";
+
+        // 4. Agregamos la información teórica directa (si existe en la tabla subtemas)
+        if (!empty($subtema->informacion)) {
+            $ctx .= "Teoría base: {$subtema->informacion}\n";
+        }
+
+        // 5. Recorremos los contenidos extra (videos, textos largos) y los agregamos
+        if ($subtema->contenidos && $subtema->contenidos->count() > 0) {
+            foreach ($subtema->contenidos as $cont) {
+                // Tomamos solo los primeros 500 caracteres de cada contenido 
+                // para no exceder el límite de tokens de la IA y ahorrar costos.
+                $extracto = substr($cont->cuerpo, 0, 500);
+                $ctx .= "Información adicional ({$cont->titulo}): {$extracto}...\n";
+            }
+        }
+
+        return $ctx;
+    }
+
+    private function obtenerContextoEjercicio($ejercicio) {
+        $subtema = \App\Models\Subtema::with('contenidos')->find($subtemaId);
+        $contexto = "Ejercicio: {$ejercicio->titulo}. Pregunta: {$ejercicio->pregunta}. Solución: {$ejercicio->solucion}. ";
+        if ($subtema) {
+            $contexto .= "Tema relacionado: {$subtema->titulo}. ";
+            $contenido = $subtema->contenidos->first();
+            if ($contenido) $contexto .= "Teoría: " . substr($contenido->cuerpo, 0, 200);
+        }
+        return $contexto;
+    }
+
+    private function verificarRespuestaConGemini($ejercicio, $respuestaEstudiante, $contexto): array
+    {
+        $prompt = "Contexto: {$contexto}\n";
+        $prompt .= "Pregunta: \"{$ejercicio->pregunta}\"\n";
+        $prompt .= "Solución: \"{$ejercicio->solucion}\"\n";
+        $prompt .= "Respuesta Estudiante: \"{$respuestaEstudiante}\"\n";
+        $prompt .= "Devuelve JSON: { \"es_correcto\": boolean, \"evaluacion\": string, \"retroalimentacion\": string }";
+
+        $resultadoIA = $this->llamarGemini($prompt);
+
+        if ($resultadoIA['success']) {
+            $textoLimpio = $this->limpiarJSON($resultadoIA['data']);
+            $json = json_decode($textoLimpio, true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                return [
+                    'es_correcto' => $json['es_correcto'] ?? false,
+                    'evaluacion' => $json['evaluacion'] ?? 'Evaluación no disponible',
+                    'retroalimentacion' => $json['retroalimentacion'] ?? 'Sin comentarios',
+                ];
+            }
+        }
+        return [
+            'es_correcto' => false,
+            'evaluacion' => 'Error al conectar con IA',
+            'retroalimentacion' => 'Intenta de nuevo.',
+        ];
     }
 }
