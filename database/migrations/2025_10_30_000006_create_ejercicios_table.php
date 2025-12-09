@@ -17,8 +17,17 @@ return new class extends Migration
             $table->string('titulo', 255);
             $table->text('pregunta');
             $table->text('solucion');
-            $table->enum('dificultad', ['FACIL', 'MEDIO', 'DIFICIL']);
-            $table->json('metadatos')->nullable();
+            
+            // CORRECCIÓN 1: Cambiado a string o minúsculas para que coincida con el Seeder ('facil', 'medio')
+            $table->string('dificultad', 20)->default('medio'); 
+            
+            // Tus columnas nuevas
+            $table->string('tipo_interaccion', 30)->default('texto_libre'); 
+            $table->json('contenido_juego')->nullable();
+            
+            // JSON metadata si lo tenías antes (opcional, si no lo usas puedes quitarlo)
+            $table->json('metadatos')->nullable(); 
+            
             $table->timestamps();
         });
     }

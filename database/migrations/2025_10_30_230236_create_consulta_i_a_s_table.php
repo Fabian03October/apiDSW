@@ -18,7 +18,7 @@ return new class extends Migration
             $table->text('pregunta');
             $table->text('respuesta_ia')->nullable();
             $table->text('retroalimentacion')->nullable();
-            $table->enum('tipo', ['duda', 'respuesta_ejercicio'])->default('duda');
+            $table->string('tipo',50)->default('duda');
             $table->boolean('es_correcto')->nullable();
             $table->timestamps();
         });

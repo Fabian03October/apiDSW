@@ -16,7 +16,15 @@ use Illuminate\Http\Request;
 // Rutas de autenticación (públicas)
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login']);
-
+Route::get('/ver-modelos-disponibles', function () {
+    $apiKey = trim(env('GEMINI_API_KEY'));
+    
+    // Consultamos la lista oficial de modelos
+    $response = \Illuminate\Support\Facades\Http::withoutVerifying()
+        ->get("https://generativelanguage.googleapis.com/v1beta/models?key={$apiKey}");
+    
+    return $response->json();
+});
 
 
 // Rutas protegidas
@@ -33,6 +41,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/ia/evaluar-conjunto-ejercicios', [ConsultaIAController::class, 'evaluarConjuntoEjercicios']);
     Route::get('/subtemas/{id}/ejercicios', [EjercicioController::class, 'porSubtema']);
     Route::post('/ia/evaluar-lote-ejercicios', [ConsultaIAController::class, 'evaluarConjuntoEjercicios']);
+    Route::post('/ia/evaluar-quiz', [App\Http\Controllers\ConsultaIAController::class, 'evaluarQuiz']); 
 
     // Rutas de Materias
     Route::apiResource('materias', MateriaController::class);
