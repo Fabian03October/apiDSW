@@ -106,43 +106,91 @@ class _QuizScreenState extends State<QuizScreen> {
       context: context,
       isDismissible: false,
       enableDrag: false,
-      builder: (_) => Container(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              aprobado ? Icons.emoji_events : Icons.sentiment_dissatisfied,
-              size: 60,
-              color: aprobado ? Colors.amber : Colors.red,
-            ),
-            const SizedBox(height: 10),
-            Text(
-              aprobado ? '¡Felicidades!' : 'Sigue intentando',
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-            ),
-            Text(
-              'Calificación: $nota/100',
-              style: TextStyle(
-                fontSize: 18, 
-                color: aprobado ? Colors.green : Colors.red,
-                fontWeight: FontWeight.bold
+      isScrollControlled: true, // <--- 1. Permite que el modal sea más alto
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(25.0)),
+      ),
+      builder: (_) => DraggableScrollableSheet(
+        initialChildSize: 0.6, // Ocupa el 60% de la pantalla al abrir
+        minChildSize: 0.4,
+        maxChildSize: 0.9, // Puede estirarse hasta el 90%
+        expand: false,
+        builder: (_, controller) => Container(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            children: [
+              // Barra gris pequeña para indicar que se puede deslizar (estética)
+              Container(
+                width: 40,
+                height: 5,
+                margin: const EdgeInsets.only(bottom: 20),
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
-            ),
-            const SizedBox(height: 15),
-            Text(feedback, textAlign: TextAlign.center),
-            const SizedBox(height: 25),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () {
-                  Navigator.pop(context); // Cierra modal
-                  Navigator.pop(context); // Sale del Quiz
-                },
-                child: const Text('Terminar'),
+              
+              // Contenido con Scroll
+              Expanded(
+                child: ListView( // <--- 2. Usamos ListView para que el texto tenga scroll
+                  controller: controller,
+                  children: [
+                    Icon(
+                      aprobado ? Icons.emoji_events : Icons.sentiment_dissatisfied,
+                      size: 80,
+                      color: aprobado ? Colors.amber : Colors.redAccent,
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      aprobado ? '¡Felicidades!' : 'Sigue intentando',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      'Calificación: $nota/100',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 20, 
+                        color: aprobado ? Colors.green : Colors.red,
+                        fontWeight: FontWeight.bold
+                      ),
+                    ),
+                    const Divider(height: 30, thickness: 1),
+                    const Text(
+                      "Retroalimentación de la IA:",
+                      style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      feedback, 
+                      style: const TextStyle(fontSize: 16, height: 1.5),
+                      textAlign: TextAlign.justify, // Texto justificado se ve mejor
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+                ),
               ),
-            )
-          ],
+
+              // Botón Fijo al final
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    backgroundColor: Colors.blueAccent,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  onPressed: () {
+                    Navigator.pop(context); // Cierra modal
+                    Navigator.pop(context); // Sale del Quiz
+                  },
+                  child: const Text('Terminar Revisión', style: TextStyle(fontSize: 18)),
+                ),
+              )
+            ],
+          ),
         ),
       ),
     );

@@ -8,6 +8,7 @@ import '../models/subtema.dart';
 import '../models/contenido.dart'; 
 import '../models/ejercicio.dart';
 
+
 class ApiService {
   final String baseUrl = 'http://10.0.2.2:8000/api'; 
   late Dio _dio;
@@ -301,56 +302,171 @@ class ApiService {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token');
 
-      // Preparamos los datos (enviaremos temaId o subtemaId según corresponda)
-      Map<String, dynamic> data = {
+      Map<String, dynamic> requestData = {
         'cantidad': cantidad,
         'dificultad': dificultad,
       };
 
-      if (subtemaId != null) data['subtema_id'] = subtemaId;
-      if (temaId != null) data['tema_id'] = temaId;
+      if (subtemaId != null) requestData['subtema_id'] = subtemaId;
+      if (temaId != null) requestData['tema_id'] = temaId;
+
+      debugPrint('🚀 ENVIANDO A LARAVEL: $requestData');
 
       final response = await _dio.post(
         '$baseUrl/ia/generar-cuestionario',
-        data: data,
-        options: Options(headers: {'Authorization': 'Bearer $token', 'Accept': 'application/json'}),
+        data: requestData,
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $token',
+            'Accept': 'application/json'
+          },
+          // Esto es vital: le decimos a Dio que acepte texto plano también
+          responseType: ResponseType.plain, 
+        ),
       );
       
-      return response.data;
+      debugPrint('📥 RESPUESTA RECIBIDA (RAW): ${response.data}');
+
+      // --- AQUÍ ESTÁ LA MAGIA QUE ARREGLA EL ERROR ---
+      dynamic datos = response.data;
+
+      // Si llegó como String, lo convertimos a Mapa manualmente
+      if (datos is String) {
+        // Intentamos limpiar posibles caracteres basura antes del JSON
+        if (datos.contains('{')) {
+            datos = datos.substring(datos.indexOf('{'));
+        }
+        datos = jsonDecode(datos);
+      }
+
+      return Map<String, dynamic>.from(datos);
+      // ----------------------------------------------
+
     } catch (e) {
-      debugPrint('Error generando quiz: $e');
-      throw Exception('No se pudo generar el cuestionario');
+      debugPrint('🛑 ERROR GRAVE AL GENERAR CUESTIONARIO: $e');
+      throw Exception('No se pudo generar el cuestionario.');
     }
   }
 
   /// 2. Enviar las respuestas del usuario para calificar
+ // 2. Responder Quiz (Versión Blindada contra Strings)
   Future<Map<String, dynamic>> responderCuestionario(int quizId, List<Map<String, dynamic>> respuestas) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('auth_token');
 
-      // Las respuestas deben tener este formato: [{'id': 1, 'seleccion': 'a'}, {'id': 2, 'seleccion': 'c'}...]
       final response = await _dio.post(
         '$baseUrl/ia/responder-cuestionario',
         data: {
           'quiz_id': quizId,
           'respuestas': respuestas,
         },
-        options: Options(headers: {
-          'Authorization': 'Bearer $token',
-          'Accept': 'application/json',
-        }),
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $token',
+            'Accept': 'application/json'
+          },
+          // TRUCO VITAL: Pedimos texto plano para decodificar nosotros mismos
+          responseType: ResponseType.plain, 
+        ),
       );
 
-      // Laravel devuelve 'calificacion', 'retroalimentacion', etc.
-      return response.data;
+      debugPrint('📥 RESPUESTA CALIFICACIÓN (RAW): ${response.data}');
+
+      // --- LOGICA DE DECODIFICACIÓN MANUAL ---
+      dynamic datos = response.data;
+
+      if (datos is String) {
+        // Limpieza de emergencia por si Laravel manda basura antes del JSON
+        if (datos.contains('{')) {
+            datos = datos.substring(datos.indexOf('{'));
+        }
+        datos = jsonDecode(datos);
+      }
+
+      return Map<String, dynamic>.from(datos);
+      // ---------------------------------------
 
     } catch (e) {
-      debugPrint('Error respondiendo cuestionario: $e');
-      if (e is DioException) {
-        debugPrint('Server error: ${e.response?.data}');
+      debugPrint('🛑 ERROR AL CALIFICAR CUESTIONARIO: $e');
+      throw Exception('No se pudo calificar el cuestionario');
+    }
+    
+  }
+  Future<Map<String, dynamic>> evaluarQuiz(List<Map<String, dynamic>> listaRespuestas) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('auth_token');
+
+      // 1. Enviamos la lista de respuestas: [{'ejercicio_id': 1, 'respuesta': '...'}, ...]
+      final response = await _dio.post(
+        '$baseUrl/ia/evaluar-quiz', // Asegúrate de que esta ruta exista en Laravel (routes/api.php)
+        data: {
+          'respuestas': listaRespuestas,
+        },
+        options: Options(
+          headers: {
+            'Authorization': 'Bearer $token',
+            'Accept': 'application/json'
+          },
+          // IMPORTANTE: Forzamos respuesta plana para evitar errores de conversión
+          responseType: ResponseType.plain, 
+        ),
+      );
+
+      // 2. Decodificación manual segura (Misma lógica que usamos antes)
+      dynamic datos = response.data;
+
+      if (datos is String) {
+        if (datos.contains('{')) {
+            datos = datos.substring(datos.indexOf('{'));
+        }
+        datos = jsonDecode(datos);
       }
-      throw Exception('Error al calificar el cuestionario');
+
+      // 3. El backend devuelve algo como: { "message": "...", "resultado": { ... } }
+      // Devolvemos la parte de "resultado" o todo el mapa según tu backend.
+      // Si tu backend devuelve directamente el resultado dentro de 'resultado', usa:
+      if (datos is Map<String, dynamic> && datos.containsKey('resultado')) {
+        return Map<String, dynamic>.from(datos['resultado']);
+      }
+      
+      return Map<String, dynamic>.from(datos);
+
+    } catch (e) {
+      // --- BLOQUE DE DEPURACIÓN MEJORADO ---
+      debugPrint('🛑 ERROR CRÍTICO EN EVALUAR QUIZ:');
+      
+      if (e is DioException) {
+        // Error relacionado con la petición HTTP
+        debugPrint('👉 TIPO: DioException');
+        debugPrint('👉 STATUS CODE: ${e.response?.statusCode}');
+        debugPrint('👉 MENSAJE DIO: ${e.message}');
+        
+        if (e.response != null) {
+          debugPrint('🔥🔥 DATA DEL SERVIDOR (LARAVEL) 🔥🔥:');
+          // Aquí saldrá el mensaje exacto de Laravel (ej: "column not found", "validate error")
+          debugPrint(e.response?.data.toString()); 
+        } else {
+          debugPrint('👉 Error de conexión: El servidor no respondió.');
+        }
+
+      } else {
+        // Error de lógica en Flutter (ej: falló el jsonDecode)
+        debugPrint('👉 TIPO: Error Interno / Parsing');
+        debugPrint('👉 DETALLE: $e');
+        
+        // Si es error de tipo (String is not subtype...), imprime el stack trace
+        if (e is TypeError) {
+           debugPrint('👉 STACK TRACE: ${e.stackTrace}');
+        }
+      }
+      
+      debugPrint('--------------------------------------------------');
+      
+      // Lanzamos un error más descriptivo para que la UI sepa qué decir
+      throw Exception('No se pudo evaluar: ${e.toString()}');
     }
   }
+
 }

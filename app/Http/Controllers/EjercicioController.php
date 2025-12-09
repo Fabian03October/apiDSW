@@ -30,8 +30,13 @@ class EjercicioController extends Controller
             'titulo' => 'required|string|max:255',
             'pregunta' => 'required|string',
             'solucion' => 'required|string',
-            'dificultad' => 'required|in:FACIL,MEDIO,DIFICIL',
+            // OJO: Ajustado a minúsculas para coincidir con el Seeder
+            'dificultad' => 'required|in:facil,medio,dificil,FACIL,MEDIO,DIFICIL', 
             'metadatos' => 'nullable|array',
+            
+            // --- NUEVOS CAMPOS AGREGADOS ---
+            'tipo_interaccion' => 'nullable|string|max:30',
+            'contenido_juego' => 'nullable|array', // Laravel valida JSON entrante como array
         ]);
 
         $ejercicio = Ejercicio::create($validated);
@@ -40,7 +45,6 @@ class EjercicioController extends Controller
 
     public function update(Request $request, Ejercicio $ejercicio): JsonResponse
     {
-        // Solo administradores pueden actualizar ejercicios
         if ($request->user()->rol !== 'administrador') {
             return response()->json(['message' => 'No tiene permisos para actualizar ejercicios'], 403);
         }
@@ -50,8 +54,12 @@ class EjercicioController extends Controller
             'titulo' => 'required|string|max:255',
             'pregunta' => 'required|string',
             'solucion' => 'required|string',
-            'dificultad' => 'required|in:FACIL,MEDIO,DIFICIL',
+            'dificultad' => 'required|in:facil,medio,dificil,FACIL,MEDIO,DIFICIL',
             'metadatos' => 'nullable|array',
+            
+            // --- NUEVOS CAMPOS AGREGADOS ---
+            'tipo_interaccion' => 'nullable|string|max:30',
+            'contenido_juego' => 'nullable|array',
         ]);
 
         $ejercicio->update($validated);
@@ -60,7 +68,6 @@ class EjercicioController extends Controller
 
     public function destroy(Request $request, Ejercicio $ejercicio): JsonResponse
     {
-        // Solo administradores pueden eliminar ejercicios
         if ($request->user()->rol !== 'administrador') {
             return response()->json(['message' => 'No tiene permisos para eliminar ejercicios'], 403);
         }
@@ -68,11 +75,22 @@ class EjercicioController extends Controller
         $ejercicio->delete();
         return response()->json(null, 204);
     }
+
+    // --- ESTA ES LA FUNCIÓN QUE USA FLUTTER ---
     public function porSubtema($id)
     {
-        // Ocultamos la 'solucion' real para que el alumno no la vea inspeccionando la red
+        // Ocultamos la 'solucion' por seguridad, 
+        // PERO debemos incluir los campos nuevos para que el juego funcione
         $ejercicios = Ejercicio::where('subtema_id', $id)
-            ->select('id', 'subtema_id', 'titulo', 'pregunta', 'dificultad') 
+            ->select(
+                'id', 
+                'subtema_id', 
+                'titulo', 
+                'pregunta', 
+                'dificultad',
+                'tipo_interaccion', // <--- ¡IMPORTANTE!
+                'contenido_juego'   // <--- ¡IMPORTANTE!
+            ) 
             ->get();
 
         return response()->json($ejercicios);

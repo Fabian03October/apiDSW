@@ -2,10 +2,11 @@ import 'package:flutter/material.dart';
 import '../models/subtema.dart';
 import '../models/ejercicio.dart';
 import '../services/api_service.dart';
+import '../widgets/juegos/juego_arrastrar.dart';
+import '../widgets/juegos/juego_relacionar.dart';
 
 class EjerciciosScreen extends StatefulWidget {
   final Subtema subtema;
-
   const EjerciciosScreen({super.key, required this.subtema});
 
   @override
@@ -15,10 +16,11 @@ class EjerciciosScreen extends StatefulWidget {
 class _EjerciciosScreenState extends State<EjerciciosScreen> {
   final ApiService apiService = ApiService();
   late Future<List<Ejercicio>> ejerciciosFuture;
-
-  // Controladores para guardar lo que escribe el usuario en cada ejercicio
-  final Map<int, TextEditingController> _respuestasControllers = {};
-  final Map<int, bool> _cargandoEvaluacion = {}; // Para mostrar spinner por ejercicio
+  
+  final PageController _pageController = PageController();
+  final Map<int, String> _respuestas = {}; // Guardamos respuesta por ID de ejercicio
+  int _indexActual = 0;
+  bool _enviando = false;
 
   @override
   void initState() {
@@ -26,169 +28,321 @@ class _EjerciciosScreenState extends State<EjerciciosScreen> {
     ejerciciosFuture = apiService.getEjerciciosPorSubtema(widget.subtema.id);
   }
 
-  @override
-  void dispose() {
-    // Limpiar controladores de memoria
-    for (var controller in _respuestasControllers.values) {
-      controller.dispose();
+  // Enviar todo el paquete a la IA
+  Future<void> _finalizar(List<Ejercicio> listaEjercicios) async {
+    setState(() => _enviando = true);
+
+    try {
+      // Construimos el payload para el endpoint 'evaluarConjuntoEjercicios'
+      List<Map<String, dynamic>> payload = [];
+      
+      for (var ej in listaEjercicios) {
+        payload.add({
+          'ejercicio_id': ej.id,
+          'respuesta': _respuestas[ej.id] ?? "Sin responder"
+        });
+      }
+
+      // Usamos el servicio de "Evaluar Quiz" que ya creamos (o el de conjunto)
+      // Asegúrate de tener apiService.evaluarQuiz o similar implementado
+      final resultado = await apiService.evaluarQuiz(payload); // Reutilizamos la logica batch
+
+      if (!mounted) return;
+      _mostrarResultadosFinales(resultado);
+
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+    } finally {
+      setState(() => _enviando = false);
     }
-    super.dispose();
   }
 
-  Future<void> _evaluar(int ejercicioId, BuildContext context) async {
-    final respuesta = _respuestasControllers[ejercicioId]?.text;
+  void _mostrarResultadosFinales(Map<String, dynamic> data) {
+    // 1. Extraemos los datos de forma segura
+    // Nota: Asegúrate de que los nombres de las claves coincidan con tu Prompt de Laravel
+    final int nota = data['nota_global'] is int ? data['nota_global'] : int.tryParse(data['nota_global'].toString()) ?? 0;
+    final String comentarioGeneral = data['comentario_general'] ?? 'Sin comentarios adicionales.';
+    final List<dynamic> detalles = data['detalles'] ?? [];
     
-    if (respuesta == null || respuesta.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Por favor escribe una respuesta')),
-      );
-      return;
-    }
-
-    setState(() => _cargandoEvaluacion[ejercicioId] = true);
-
-    // Llamada a la IA
-    final resultado = await apiService.evaluarRespuestaIA(ejercicioId, respuesta);
-
-    setState(() => _cargandoEvaluacion[ejercicioId] = false);
-
-    if (!mounted) return;
-
-    // Mostrar Resultado (BottomSheet)
-    _mostrarResultadoIA(context, resultado);
-  }
-
-  void _mostrarResultadoIA(BuildContext context, Map<String, dynamic> resultado) {
-    bool esCorrecto = resultado['es_correcto'] == true || (resultado['calificacion'] ?? 0) > 60;
-    String feedback = resultado['retroalimentacion'] ?? resultado['respuesta_ia'] ?? 'Sin comentarios';
+    final bool aprobado = nota >= 60;
 
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(20),
+      isDismissible: false, // Obliga a usar el botón para cerrar
+      enableDrag: false,
+      isScrollControlled: true, // Permite que la hoja crezca
+      backgroundColor: Colors.transparent, // Para ver las esquinas redondeadas
+      builder: (_) => DraggableScrollableSheet(
+        initialChildSize: 0.7, // Empieza al 70% de la pantalla
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        builder: (_, scrollController) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(25.0)),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           child: Column(
-            mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                esCorrecto ? Icons.check_circle : Icons.info,
-                color: esCorrecto ? Colors.green : Colors.orange,
-                size: 60,
+              // Barra indicadora para deslizar
+              Container(
+                width: 50,
+                height: 5,
+                margin: const EdgeInsets.only(bottom: 20, top: 10),
+                decoration: BoxDecoration(
+                  color: Colors.grey[300],
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
-              const SizedBox(height: 10),
-              Text(
-                esCorrecto ? '¡Bien hecho!' : 'A mejorar',
-                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+
+              // Título y Nota
+              Expanded(
+                child: ListView(
+                  controller: scrollController,
+                  children: [
+                    // --- ENCABEZADO DE NOTA ---
+                    Center(
+                      child: Column(
+                        children: [
+                          Icon(
+                            aprobado ? Icons.verified : Icons.warning_amber_rounded,
+                            size: 80,
+                            color: aprobado ? Colors.green : Colors.orange,
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            aprobado ? '¡Excelente Trabajo!' : 'A repasar un poco',
+                            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(height: 5),
+                          Text(
+                            '$nota/100',
+                            style: TextStyle(
+                              fontSize: 40,
+                              fontWeight: FontWeight.w900,
+                              color: aprobado ? Colors.green[700] : Colors.orange[800],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    
+                    const SizedBox(height: 20),
+                    
+                    // --- COMENTARIO GENERAL ---
+                    Container(
+                      padding: const EdgeInsets.all(15),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.blue.shade100),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(children: [
+                            Icon(Icons.psychology, color: Colors.blue.shade800),
+                            const SizedBox(width: 8),
+                            Text("Análisis de la IA:", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue.shade900))
+                          ]),
+                          const SizedBox(height: 8),
+                          Text(
+                            comentarioGeneral,
+                            style: TextStyle(fontSize: 16, color: Colors.blue.shade900, height: 1.4),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(height: 25),
+                    const Text("Detalle por Ejercicio:", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 10),
+
+                    // --- LISTA DE DETALLES ---
+                    ...detalles.asMap().entries.map((entry) {
+                      int numeroVisual = entry.key + 1; // Genera 1, 2, 3, 4... siempre
+                      var item = entry.value;
+                      bool esCorrecto = item['es_correcto'] == true;
+
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 15),
+                        elevation: 2,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          side: BorderSide(
+                            color: esCorrecto ? Colors.green.withOpacity(0.5) : Colors.red.withOpacity(0.5),
+                            width: 1
+                          )
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    esCorrecto ? Icons.check_circle : Icons.cancel,
+                                    color: esCorrecto ? Colors.green : Colors.red,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Text(
+                                    "Ejercicio $numeroVisual", // <--- AQUI ESTÁ EL CAMBIO
+                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                  ),
+                                  const Spacer(),
+                                  if(!esCorrecto)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(color: Colors.red[50], borderRadius: BorderRadius.circular(5)),
+                                      child: const Text("Incorrecto", style: TextStyle(color: Colors.red, fontSize: 12)),
+                                    )
+                                ],
+                              ),
+                              const Divider(),
+                              Text(
+                                item['feedback'] ?? "Sin comentarios",
+                                style: TextStyle(color: Colors.grey[800], height: 1.3),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }), // Fin del map
+                    
+                    const SizedBox(height: 20),
+                  ],
+                ),
               ),
-              const SizedBox(height: 15),
-              Text(
-                feedback,
-                style: const TextStyle(fontSize: 16),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Entendido'),
+
+              // --- BOTÓN DE SALIDA ---
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    backgroundColor: Colors.indigo,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: () {
+                    Navigator.pop(context); // Cierra modal
+                    Navigator.pop(context); // Sale de la pantalla de ejercicios
+                  },
+                  child: const Text("FINALIZAR REVISIÓN", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ),
               )
             ],
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Ejercicios: ${widget.subtema.titulo}')),
+      appBar: AppBar(
+        title: Text('${widget.subtema.titulo}'),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(4),
+          child: FutureBuilder<List<Ejercicio>>(
+            future: ejerciciosFuture,
+            builder: (c, s) {
+              if (!s.hasData) return const LinearProgressIndicator();
+              return LinearProgressIndicator(
+                value: (_indexActual + 1) / s.data!.length,
+                backgroundColor: Colors.grey[300],
+              );
+            },
+          ),
+        ),
+      ),
       body: FutureBuilder<List<Ejercicio>>(
         future: ejerciciosFuture,
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return const Center(child: Text('No hay ejercicios para este tema.'));
-          }
+          if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
+          if (!snapshot.hasData || snapshot.data!.isEmpty) return const Center(child: Text("No hay ejercicios."));
 
           final ejercicios = snapshot.data!;
 
-          return ListView.builder(
-            padding: const EdgeInsets.all(10),
-            itemCount: ejercicios.length,
-            itemBuilder: (context, index) {
-              final ejercicio = ejercicios[index];
-              
-              // Inicializar controlador si no existe
-              _respuestasControllers.putIfAbsent(ejercicio.id, () => TextEditingController());
-              
-              return Card(
-                margin: const EdgeInsets.only(bottom: 15),
-                child: Padding(
-                  padding: const EdgeInsets.all(15.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Título y Dificultad
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text('Ejercicio #${index + 1}', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
-                          Chip(
-                            label: Text(ejercicio.dificultad ?? 'Medio', style: const TextStyle(color: Colors.white, fontSize: 10)),
-                            backgroundColor: Colors.blueAccent,
-                            padding: EdgeInsets.zero,
-                          )
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      
-                      // La Pregunta
-                      Text(
-                        ejercicio.pregunta,
-                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(height: 15),
-                      
-                      // Campo de Respuesta
-                      TextField(
-                        controller: _respuestasControllers[ejercicio.id],
-                        maxLines: 3,
-                        decoration: const InputDecoration(
-                          hintText: 'Escribe tu respuesta aquí...',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 15),
-                      
-                      // Botón de Evaluar
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: (_cargandoEvaluacion[ejercicio.id] == true) 
-                              ? null 
-                              : () => _evaluar(ejercicio.id, context),
-                          icon: (_cargandoEvaluacion[ejercicio.id] == true)
-                              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-                              : const Icon(Icons.auto_awesome),
-                          label: Text((_cargandoEvaluacion[ejercicio.id] == true) ? ' Evaluando...' : 'Evaluar con IA'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.indigo,
-                            foregroundColor: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+          return Column(
+            children: [
+              Expanded(
+                child: PageView.builder(
+                  controller: _pageController,
+                  physics: const NeverScrollableScrollPhysics(), // Bloquea deslizamiento manual
+                  itemCount: ejercicios.length,
+                  itemBuilder: (context, index) {
+                    return SingleChildScrollView(
+                      padding: const EdgeInsets.all(16),
+                      child: _buildEjercicioContent(ejercicios[index]),
+                    );
+                  },
                 ),
-              );
-            },
+              ),
+              
+              // Botón de Acción Inferior
+              Container(
+                padding: const EdgeInsets.all(16),
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 15),
+                    backgroundColor: Colors.indigo,
+                    foregroundColor: Colors.white
+                  ),
+                  onPressed: _enviando ? null : () {
+                    if (_indexActual < ejercicios.length - 1) {
+                      // Siguiente Pregunta
+                      _pageController.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.ease);
+                      setState(() => _indexActual++);
+                    } else {
+                      // Finalizar
+                      _finalizar(ejercicios);
+                    }
+                  },
+                  child: _enviando 
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : Text(_indexActual == ejercicios.length - 1 ? "FINALIZAR Y EVALUAR" : "SIGUIENTE"),
+                ),
+              )
+            ],
           );
         },
       ),
+    );
+  }
+
+  Widget _buildEjercicioContent(Ejercicio ejercicio) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(ejercicio.pregunta, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 20),
+        
+        // Renderizado del Juego según tipo
+        if (ejercicio.tipoInteraccion == 'arrastrar')
+          JuegoArrastrar(
+            datos: ejercicio.contenidoJuego ?? {},
+            onRespuestaChanged: (val) => _respuestas[ejercicio.id] = val,
+          )
+        else if (ejercicio.tipoInteraccion == 'relacionar')
+          JuegoRelacionar(
+            datos: ejercicio.contenidoJuego ?? {},
+            onRespuestaChanged: (val) => _respuestas[ejercicio.id] = val,
+          )
+        else
+          // Texto libre por defecto
+          TextField(
+            onChanged: (val) => _respuestas[ejercicio.id] = val,
+            decoration: const InputDecoration(
+              hintText: "Escribe tu respuesta...",
+              border: OutlineInputBorder()
+            ),
+            maxLines: 3,
+          )
+      ],
     );
   }
 }
