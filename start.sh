@@ -1,5 +1,6 @@
 #!/bin/sh
 
+chmod +x ./vendor/bin/rr
 # 1. Ejecutar migraciones
 echo "Ejecutando migraciones..."
 php artisan migrate:fresh --seed --force
