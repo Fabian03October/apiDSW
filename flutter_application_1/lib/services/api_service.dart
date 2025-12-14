@@ -10,7 +10,7 @@ import '../models/ejercicio.dart';
 
 
 class ApiService {
-  final String baseUrl = 'http://10.0.2.2:8000/api'; 
+  final String baseUrl = 'https://apidsw-production-9b94.up.railway.app/api'; 
   late Dio _dio;
 
   ApiService() {
