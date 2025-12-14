@@ -8,17 +8,31 @@ import '../models/subtema.dart';
 import '../models/contenido.dart'; 
 import '../models/ejercicio.dart';
 
+// Clase para mantener el resultado del login
+class LoginResult {
+  final bool success;
+  final String? token;
+  final String? errorMessage;
+
+  LoginResult({
+    required this.success,
+    this.token,
+    this.errorMessage,
+  });
+}
 
 class ApiService {
-  final String baseUrl = 'http://10.0.2.2:8000/api'; 
+  final String baseUrl = 'https://apidsw-production-9b94.up.railway.app/api'; 
   late Dio _dio;
 
   ApiService() {
     _dio = Dio(
       BaseOptions(
-        baseUrl: 'http://10.0.2.2:8000/api',
+        baseUrl: 'https://apidsw-production-9b94.up.railway.app/api',
         contentType: 'application/json',
-        responseType: ResponseType.plain, // USAR PLAIN PARA EVITAR JSON PARSING
+        responseType: ResponseType.plain,
+        connectTimeout: const Duration(seconds: 15),
+        receiveTimeout: const Duration(seconds: 15),
         headers: {
           'Accept': 'application/json',
         },
@@ -28,24 +42,28 @@ class ApiService {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (options, handler) {
-          debugPrint('>>> [${options.method}] ${options.path}');
+          debugPrint('🚀 REQUEST: [${options.method}] ${options.baseUrl}${options.path}');
+          debugPrint('   URL Completa: ${options.uri}');
           return handler.next(options);
         },
         onResponse: (response, handler) {
-          debugPrint('<<< [${response.statusCode}] ${response.requestOptions.path}');
+          debugPrint('✅ RESPONSE: [${response.statusCode}] ${response.requestOptions.path}');
           return handler.next(response);
         },
         onError: (error, handler) {
-          debugPrint('!!! ERROR: ${error.type} - ${error.message}');
+          debugPrint('❌ ERROR INTERCEPTOR: ${error.type} - ${error.message}');
           return handler.next(error);
         },
       ),
     );
   }
 
-  Future<bool> login(String email, String password) async {
+  Future<LoginResult> login(String email, String password) async {
     try {
-      debugPrint('Intentando login con: $email');
+      debugPrint('🔐 Intentando login con: $email');
+      debugPrint('🌐 Servidor: $baseUrl');
+      debugPrint('📧 Email a enviar: "$email"');
+      debugPrint('🔑 Contraseña a enviar: "$password"');
       
       final response = await _dio.post(
         '/login',
@@ -53,9 +71,14 @@ class ApiService {
           'email': email,
           'password': password,
         },
+        options: Options(
+          responseType: ResponseType.plain,
+        ),
       ).timeout(Duration(seconds: 10));
 
-      debugPrint('Status Code: ${response.statusCode}');
+      debugPrint('📊 Status Code: ${response.statusCode}');
+      debugPrint('📨 Response Raw (COMPLETA): ${response.data}');
+      debugPrint('📨 Response Type: ${response.data.runtimeType}');
 
       if (response.statusCode == 200) {
         // Limpiar caracteres basura - buscar el primer { y último }
@@ -65,31 +88,119 @@ class ApiService {
         
         if (startIndex != -1 && endIndex != -1) {
           String cleanedData = rawData.substring(startIndex, endIndex + 1);
-          debugPrint('Response limpia: $cleanedData');
+          debugPrint('✅ Response limpia: $cleanedData');
           
           final Map<String, dynamic> jsonData = jsonDecode(cleanedData);
-          final token = jsonData['token'];
+          // El backend devuelve 'access_token', no 'token'
+          final token = jsonData['access_token'] ?? jsonData['token'];
+          
+          if (token == null) {
+            debugPrint('❌ No se encontró token en la respuesta');
+            return LoginResult(success: false, errorMessage: 'Error: No se recibió token del servidor');
+          }
           
           final prefs = await SharedPreferences.getInstance();
           await prefs.setString('auth_token', token);
           
-          debugPrint('Login exitoso. Token guardado: $token');
-          return true;
+          debugPrint('✅ Login exitoso. Token guardado: $token');
+          return LoginResult(success: true, token: token);
         } else {
-          debugPrint('No se encontró JSON válido en la respuesta');
-          return false;
+          debugPrint('❌ No se encontró JSON válido en la respuesta');
+          return LoginResult(success: false, errorMessage: 'Error: Respuesta inválida del servidor');
         }
+      } else {
+        debugPrint('❌ Login fallido - Status: ${response.statusCode}');
+        debugPrint('❌ Respuesta RAW del servidor: ${response.data}');
+        
+        // Intentar extraer el mensaje de error del servidor
+        String errorMessage = 'Credenciales incorrectas (Status: ${response.statusCode})';
+        try {
+          String rawData = response.data.toString();
+          debugPrint('🔍 Intentando parsear respuesta de error: $rawData');
+          
+          if (rawData.contains('{')) {
+            int startIndex = rawData.indexOf('{');
+            int endIndex = rawData.lastIndexOf('}');
+            if (startIndex != -1 && endIndex != -1) {
+              String cleanedData = rawData.substring(startIndex, endIndex + 1);
+              debugPrint('✂️ Respuesta limpiada: $cleanedData');
+              
+              final Map<String, dynamic> errorData = jsonDecode(cleanedData);
+              debugPrint('📋 Mapa de error parseado: $errorData');
+              
+              // Intentar extraer diferentes posibles mensajes de error
+              if (errorData.containsKey('message')) {
+                errorMessage = errorData['message'];
+              } else if (errorData.containsKey('error')) {
+                errorMessage = errorData['error'];
+              } else if (errorData.containsKey('errors')) {
+                // Si es un objeto de errores de validación
+                final errors = errorData['errors'];
+                if (errors is Map) {
+                  errorMessage = errors.values.first.toString();
+                }
+              }
+              debugPrint('💬 Mensaje de error extraído: $errorMessage');
+            }
+          }
+        } catch (e) {
+          debugPrint('❌ No se pudo parsear el error del servidor: $e');
+        }
+        
+        return LoginResult(success: false, errorMessage: errorMessage);
       }
       
-      return false;
-      
     } on DioException catch (e) {
-      debugPrint('DioException: ${e.type}');
-      debugPrint('Message: ${e.message}');
-      return false;
+      debugPrint('🛑 DioException en login:');
+      debugPrint('👉 Type: ${e.type}');
+      debugPrint('👉 Message: ${e.message}');
+      debugPrint('👉 Error: ${e.error}');
+      
+      String errorMessage = 'Error de conexión';
+      
+      // Detallar el tipo de error
+      if (e.type == DioExceptionType.connectionTimeout) {
+        errorMessage = 'Tiempo de conexión agotado. Verifica que el servidor esté disponible';
+        debugPrint('⏱️ Error de timeout de conexión');
+      } else if (e.type == DioExceptionType.receiveTimeout) {
+        errorMessage = 'El servidor tardó demasiado en responder';
+        debugPrint('⏱️ Error de timeout de respuesta');
+      } else if (e.type == DioExceptionType.connectionError) {
+        errorMessage = 'No se puede conectar al servidor. Verifica tu conexión de internet';
+        debugPrint('📡 Error de conexión de red');
+      } else if (e.type == DioExceptionType.unknown) {
+        errorMessage = 'Error desconocido: ${e.error}';
+        debugPrint('❓ Error desconocido');
+      }
+      
+      if (e.response != null) {
+        debugPrint('👉 Status Code: ${e.response?.statusCode}');
+        debugPrint('🔥 RESPUESTA DEL SERVIDOR: ${e.response?.data}');
+        
+        // Intentar extraer mensaje de error
+        try {
+          String rawData = e.response?.data.toString() ?? '';
+          if (rawData.contains('{')) {
+            int startIndex = rawData.indexOf('{');
+            int endIndex = rawData.lastIndexOf('}');
+            if (startIndex != -1 && endIndex != -1) {
+              String cleanedData = rawData.substring(startIndex, endIndex + 1);
+              final Map<String, dynamic> errorData = jsonDecode(cleanedData);
+              
+              if (errorData.containsKey('message')) {
+                errorMessage = errorData['message'];
+              } else if (errorData.containsKey('error')) {
+                errorMessage = errorData['error'];
+              }
+            }
+          }
+        } catch (_) {}
+      }
+      
+      return LoginResult(success: false, errorMessage: errorMessage);
     } catch (e) {
-      debugPrint('Error inesperado login: $e');
-      return false;
+      debugPrint('❌ Error inesperado en login: $e');
+      return LoginResult(success: false, errorMessage: 'Error inesperado: $e');
     }
   }
 

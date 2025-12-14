@@ -29,7 +29,7 @@ class AuthController extends Controller
                 'email' => $validated['email'],
                 // IMPORTANTE: No usamos Hash::make() aquí porque tu Modelo User
                 // ya tiene 'casts' => 'hashed'. Laravel lo hace solo.
-                'contrasena_hash' => $validated['password'], 
+                'password' => Hash::make($validated['password']), 
                 'rol' => $validated['rol'],
             ]);
 
@@ -50,7 +50,7 @@ class AuthController extends Controller
         try {
             $request->validate([
                 'email' => 'required|string|email',
-                'password' => 'required|string',
+                'password' => 'required',
             ]);
 
             if (!Auth::attempt($request->only('email', 'password'))) {

@@ -15,7 +15,7 @@ return new class extends Migration
             $table->id();
             $table->string('nombre', 100);
             $table->string('email', 255)->unique();
-            $table->string('contrasena_hash', 255);
+            $table->string('password', 255);
             $table->string('rol', 50)->default('estudiante');
             $table->timestamp('fecha_registro')->useCurrent();
             $table->timestamps();

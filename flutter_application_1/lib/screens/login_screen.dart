@@ -19,24 +19,28 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
 
     // Llamamos al servicio
-    bool success = await _apiService.login(
+    final result = await _apiService.login(
       _emailController.text, 
       _passwordController.text
     );
 
     setState(() => _isLoading = false);
 
-    if (success && mounted) {
+    if (result.success && mounted) {
       // Si el login es correcto, vamos a la pantalla de Materias
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const MateriasScreen()),
       );
     } else {
-      // Si falla, mostramos una alerta
+      // Si falla, mostramos el mensaje de error específico
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Credenciales incorrectas')),
+          SnackBar(
+            content: Text(result.errorMessage ?? 'Error desconocido'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
         );
       }
     }
