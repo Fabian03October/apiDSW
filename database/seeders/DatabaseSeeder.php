@@ -22,8 +22,8 @@ class DatabaseSeeder extends Seeder
             'id'       => 1,
             'nombre' => 'Alumno Test',
             'email' => 'alumno@test.com',
-            'contrasena_hash' => Hash::make('12345678'),
-            'rol' => 'alumno',
+            'password' => Hash::make('12345678'),
+            'rol' => 'estudiante',
         ]);
     }
 }
