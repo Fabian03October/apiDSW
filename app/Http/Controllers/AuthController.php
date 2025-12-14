@@ -29,7 +29,7 @@ class AuthController extends Controller
                 'email' => $validated['email'],
                 // IMPORTANTE: No usamos Hash::make() aquí porque tu Modelo User
                 // ya tiene 'casts' => 'hashed'. Laravel lo hace solo.
-                'contrasena_hash' => $validated['password'], 
+                'password' => Hash::make($validated['password']), 
                 'rol' => $validated['rol'],
             ]);
 

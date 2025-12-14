@@ -16,7 +16,7 @@ class ApiService {
   ApiService() {
     _dio = Dio(
       BaseOptions(
-        baseUrl: 'http://10.0.2.2:8000/api',
+        baseUrl: 'https://apidsw-production-9b94.up.railway.app/api',
         contentType: 'application/json',
         responseType: ResponseType.plain, // USAR PLAIN PARA EVITAR JSON PARSING
         headers: {
